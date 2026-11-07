@@ -869,6 +869,12 @@
     <string name="text_editor_unsaved_message">You have unsaved changes. They will be lost if you leave.</string>
     <string name="text_editor_save_failed">The file could not be saved</string>
     <string name="text_editor_saved">Saved. Uploading changes…</string>
+    <string name="ocnote_editor_unsupported_location">This note can\'t be opened in the editor from here yet. Open it in the web app instead.</string>
+    <string name="ocnote_editor_login_failed">Could not sign in to the editor. Try again.</string>
+    <string name="ocnote_editor_needs_connection">Editing notes needs an internet connection</string>
+    <string name="ocnote_viewer_subtitle">Offline copy · read-only</string>
+    <string name="ocnote_viewer_failed">This note can\'t be displayed offline</string>
+    <string name="ocnote_offline_not_available">Open this note once while online to read it offline</string>
     <string name="text_preview_label">Text preview</string>
     <string name="release_notes_title_enhanced_bottom_nav_bar">Added text labels on bottom bar</string>
     <string name="release_notes_subtitle_bottom_nav_bar">Text labels were added and default active indicator is used to show which section is selected on the bottom bar</string>

@@ -76,6 +76,18 @@
         android:taskAffinity=""
         android:theme="@style/Theme.openCloud.Toolbar">
         <activity
+            android:name=".ui.activity.OcNoteViewerActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.activity.OcNoteEditorActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.openCloud.Toolbar"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <activity
             android:name=".ui.preview.PreviewVideoActivity"
             android:label="@string/video_preview_label"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"

@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; font-family: sans-serif; }
+  iframe { border: 0; width: 100%; height: 100%; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+         padding: 24px; text-align: center; color: #333; background: #fff; }
+</style>
+</head>
+<body>
+<iframe id="f" title="editor"></iframe>
+<div id="msg"></div>
+<script>
+// Host page for the OpenCloud web text editor, served by the Android app from the server's own origin
+// (the server only allows framing from its own origin). It delegates authentication to the embedded web
+// app using the "embed mode" postMessage protocol, then moves the embedded app to the editor route.
+(function () {
+  var params = new URLSearchParams(location.search);
+  var frame = document.getElementById('f');
+  var msg = document.getElementById('msg');
+  var route = params.get('route');
+  var tokenSent = false;
+  var routed = false;
+  var routedAt = 0;
+
+  function fail(text) { msg.textContent = text; msg.style.display = 'flex'; }
+
+  window.addEventListener('message', function (e) {
+    if (e.source !== frame.contentWindow || e.origin !== location.origin) return;
+    if (!e.data || e.data.name !== 'opencloud-embed:request-token') return;
+    fetch('/android-editor-token', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (t) {
+        if (!t.access_token) { fail(t.error || 'Not signed in'); return; }
+        frame.contentWindow.postMessage({ name: 'opencloud-embed:update-token', data: t }, location.origin);
+        tokenSent = true;
+      })
+      .catch(function () { fail('Could not get a session token'); });
+  });
+
+  var started = Date.now();
+  setInterval(function () {
+    var path;
+    try { path = frame.contentWindow.location.pathname; } catch (err) { return; }
+    if (tokenSent && !routed) {
+      // After signing in, embed mode lands on the file picker. Move to the editor without reloading,
+      // because the delegated token only lives in memory.
+      if (path.indexOf('/files/') === 0) {
+        var w = frame.contentWindow;
+        w.history.pushState(w.history.state, '', route);
+        w.dispatchEvent(new w.PopStateEvent('popstate', { state: w.history.state }));
+        routed = true;
+        routedAt = Date.now();
+      }
+    } else if (routed && Date.now() - routedAt > 2000 && path.indexOf('/text-editor/') !== 0) {
+      // The editor was closed from inside the web app
+      location.href = '/android-editor-close';
+    } else if (!routed && Date.now() - started > 30000) {
+      fail('The editor did not start');
+    }
+  }, 150);
+
+  // Called by the app on Back: use the editor's own close button so its unsaved-changes handling applies
+  window.__ocBack = function () {
+    var btn = null;
+    try { btn = frame.contentDocument.getElementById('app-top-bar-close'); } catch (err) {}
+    if (btn) { btn.click(); } else { location.href = '/android-editor-close'; }
+  };
+
+  frame.src = params.get('src');
+})();
+</script>
+</body>
+</html>

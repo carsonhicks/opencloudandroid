@@ -116,6 +116,7 @@ import eu.opencloud.android.presentation.spaces.SpacesListFragment.Companion.REQ
 import eu.opencloud.android.presentation.spaces.SpacesListViewModel
 import eu.opencloud.android.presentation.transfers.TransfersViewModel
 import eu.opencloud.android.providers.WorkManagerProvider
+import eu.opencloud.android.providers.implementation.OCContextProvider
 import eu.opencloud.android.syncadapter.FileSyncAdapter
 import eu.opencloud.android.ui.dialog.FileAlreadyExistsDialog
 import eu.opencloud.android.ui.fragment.FileFragment
@@ -1906,8 +1907,33 @@ class FileDisplayActivity : FileActivity(),
         file = newCurrentFolder
     }
 
+    private var ocNoteBeingEdited: OCFile? = null
+
+    // After the web editor closes, refresh the local copy so the note can be read offline later
+    private val ocNoteEditorLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        ocNoteBeingEdited?.let { note ->
+            fileOperationsViewModel.performOperation(FileOperation.SynchronizeFileOperation(note, account.name))
+        }
+        ocNoteBeingEdited = null
+    }
+
+    /** Online: edit in the web editor. Offline: read-only view of the local copy, if there is one. */
+    private fun openOcNote(file: OCFile) {
+        when {
+            OCContextProvider(this).isConnected() -> {
+                ocNoteBeingEdited = file
+                ocNoteEditorLauncher.launch(OcNoteEditorActivity.newIntent(this, account.name, file))
+            }
+            file.isAvailableLocally && file.storagePath != null ->
+                startActivity(OcNoteViewerActivity.newIntent(this, file))
+            else -> showSnackMessage(getString(R.string.ocnote_offline_not_available))
+        }
+    }
+
     override fun onFileClicked(file: OCFile) {
         when {
+            OcNoteEditorActivity.canEdit(file) -> openOcNote(file)
+
             PreviewImageFragment.canBePreviewed(file) -> {
                 // preview image - it handles the sync, if needed
                 startImagePreview(file)
