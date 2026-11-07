@@ -22,6 +22,8 @@
   var frame = document.getElementById('f');
   var msg = document.getElementById('msg');
   var route = params.get('route');
+  var shareJailId = params.get('shareJailId');
+  var resolvingRoute = false;
   var tokenSent = false;
   var routed = false;
   var routedAt = 0;
@@ -37,15 +39,48 @@
         if (!t.access_token) { fail(t.error || 'Not signed in'); return; }
         frame.contentWindow.postMessage({ name: 'opencloud-embed:update-token', data: t }, location.origin);
         tokenSent = true;
+        if (!route && shareJailId && !resolvingRoute) { resolvingRoute = true; resolveShareRoute(t.access_token); }
       })
       .catch(function () { fail('Could not get a session token'); });
   });
+
+  // A file shared with the user is addressed by the web app with the real id of the shared item, which
+  // the app only knows as a share id, so look it up the same way the web app does
+  function resolveShareRoute(accessToken) {
+    fetch('/graph/v1beta1/me/drive/sharedWithMe', { headers: { Authorization: 'Bearer ' + accessToken } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var item = (d.value || []).filter(function (v) { return v.id === shareJailId; })[0];
+        if (!item || !item.remoteItem || !item.remoteItem.id) throw new Error('share not found');
+        var id = encodeURIComponent(item.remoteItem.id);
+        route = '/text-editor/share/' + encodeURIComponent(item.name) +
+          '?shareId=' + id + '&fileId=' + id + '&contextRouteName=files-shares-with-me';
+      })
+      .catch(function () { fail('This shared note could not be opened'); });
+  }
+
+  // The web app never renews a delegated token by itself (its renewal timer is off in embed mode) and the
+  // access token only lives for a few minutes, so keep handing it fresh ones. It accepts these after sign-in.
+  function pushToken() {
+    if (!tokenSent) return;
+    fetch('/android-editor-token', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (t) {
+        if (t.access_token) {
+          frame.contentWindow.postMessage({ name: 'opencloud-embed:update-token', data: t }, location.origin);
+        }
+      })
+      .catch(function () {});
+  }
+  setInterval(pushToken, 60000);
+  // Timers are throttled in the background, so catch up as soon as the user comes back
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) pushToken(); });
 
   var started = Date.now();
   setInterval(function () {
     var path;
     try { path = frame.contentWindow.location.pathname; } catch (err) { return; }
-    if (tokenSent && !routed) {
+    if (tokenSent && !routed && route) {
       // After signing in, embed mode lands on the file picker. Move to the editor without reloading,
       // because the delegated token only lives in memory.
       if (path.indexOf('/files/') === 0) {
@@ -58,7 +93,7 @@
     } else if (routed && Date.now() - routedAt > 2000 && path.indexOf('/text-editor/') !== 0) {
       // The editor was closed from inside the web app
       location.href = '/android-editor-close';
-    } else if (!routed && Date.now() - started > 30000) {
+    } else if (!routed && Date.now() - started > 30000 && msg.style.display !== 'flex') {
       fail('The editor did not start');
     }
   }, 150);

@@ -38,9 +38,9 @@ import androidx.lifecycle.lifecycleScope
 import eu.opencloud.android.BuildConfig
 import eu.opencloud.android.R
 import eu.opencloud.android.domain.files.model.OCFile
+import eu.opencloud.android.domain.spaces.model.OCSpace
 import eu.opencloud.android.domain.spaces.usecases.GetSpaceByIdForAccountUseCase
 import eu.opencloud.android.lib.common.accounts.AccountUtils
-import eu.opencloud.android.lib.common.accounts.AccountTypeUtils
 import eu.opencloud.android.providers.CoroutinesDispatcherProvider
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +73,7 @@ class OcNoteEditorActivity : AppCompatActivity() {
         val accountName = intent.getStringExtra(EXTRA_ACCOUNT_NAME)
         val remotePath = intent.getStringExtra(EXTRA_REMOTE_PATH)
         val spaceId = intent.getStringExtra(EXTRA_SPACE_ID)
+        val remoteId = intent.getStringExtra(EXTRA_REMOTE_ID)
         val resolvedAccount = accountName?.let { eu.opencloud.android.presentation.authentication.AccountUtils.getOpenCloudAccountByName(this, it) }
         if (resolvedAccount == null || remotePath == null) {
             finish()
@@ -114,17 +115,24 @@ class OcNoteEditorActivity : AppCompatActivity() {
         webView.webViewClient = EditorWebViewClient()
 
         lifecycleScope.launch {
-            val route = withContext(dispatchers.io) { buildEditorRoute(spaceId, remotePath) }
-            if (route == null) {
-                showMessage(getString(R.string.ocnote_editor_unsupported_location))
-                return@launch
-            }
             val iframeSrc = "/?embed=true&embed-delegate-authentication=true"
-            val host = Uri.parse("$baseUrl/$HOST_PATH").buildUpon()
-                .appendQueryParameter("src", iframeSrc)
-                .appendQueryParameter("route", route)
-                .build()
-            webView.loadUrl(host.toString())
+            val host = Uri.parse("$baseUrl/$HOST_PATH").buildUpon().appendQueryParameter("src", iframeSrc)
+            if (spaceId == OCSpace.SPACE_ID_SHARES) {
+                // Only files shared directly can be addressed (the host page looks up the real item id)
+                if (remoteId == null || remotePath.trim('/').contains('/')) {
+                    showMessage(getString(R.string.ocnote_editor_unsupported_location))
+                    return@launch
+                }
+                host.appendQueryParameter("shareJailId", remoteId)
+            } else {
+                val route = withContext(dispatchers.io) { buildEditorRoute(spaceId, remotePath) }
+                if (route == null) {
+                    showMessage(getString(R.string.ocnote_editor_unsupported_location))
+                    return@launch
+                }
+                host.appendQueryParameter("route", route)
+            }
+            webView.loadUrl(host.build().toString())
         }
     }
 
@@ -201,9 +209,8 @@ class OcNoteEditorActivity : AppCompatActivity() {
         var token = AccountUtils.getCredentialsForAccount(this, account).authToken
         val expiresIn = jwtClaim(token, "exp")?.toLongOrNull()?.minus(System.currentTimeMillis() / 1000)
         if (expiresIn != null && expiresIn < TOKEN_MIN_REMAINING_SECONDS) {
-            AccountManager.get(this).invalidateAuthToken(
-                AccountTypeUtils.getAuthTokenTypeAccessToken(account.type), token
-            )
+            // First argument is the account type (not the token type); this makes the authenticator refresh
+            AccountManager.get(this).invalidateAuthToken(account.type, token)
             token = AccountUtils.getCredentialsForAccount(this, account).authToken
         }
         require(!token.isNullOrEmpty()) { "No token" }
@@ -220,10 +227,12 @@ class OcNoteEditorActivity : AppCompatActivity() {
         private const val EXTRA_ACCOUNT_NAME = "ACCOUNT_NAME"
         private const val EXTRA_REMOTE_PATH = "REMOTE_PATH"
         private const val EXTRA_SPACE_ID = "SPACE_ID"
+        private const val EXTRA_REMOTE_ID = "REMOTE_ID"
         private const val HOST_PATH = "android-editor-host.html"
         private const val TOKEN_PATH = "android-editor-token"
         private const val CLOSE_PATH = "android-editor-close"
-        private const val TOKEN_MIN_REMAINING_SECONDS = 60
+        // Tokens live 5 minutes and are pushed to the editor every minute, so hand out ones with at least 90s left
+        private const val TOKEN_MIN_REMAINING_SECONDS = 150
 
         fun canEdit(file: OCFile?): Boolean = file?.remotePath?.endsWith(".ocnote", ignoreCase = true) == true
 
@@ -232,5 +241,6 @@ class OcNoteEditorActivity : AppCompatActivity() {
                 .putExtra(EXTRA_ACCOUNT_NAME, accountName)
                 .putExtra(EXTRA_REMOTE_PATH, file.remotePath)
                 .putExtra(EXTRA_SPACE_ID, file.spaceId)
+                .putExtra(EXTRA_REMOTE_ID, file.remoteId)
     }
 }
