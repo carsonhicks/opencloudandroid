@@ -116,5 +116,26 @@
         android:icon="@drawable/ic_action_add_to_home"
         app:showAsAction="never"
         android:orderInCategory="1" />
+    <item
+        android:id="@+id/action_edit_text"
+        android:title="@string/text_editor_edit"
+        android:icon="@drawable/ic_pencil"
+        android:visible="false"
+        app:showAsAction="ifRoom"
+        android:orderInCategory="1" />
+    <item
+        android:id="@+id/action_save_text"
+        android:title="@string/text_editor_save"
+        android:icon="@drawable/ic_check"
+        android:visible="false"
+        app:showAsAction="always"
+        android:orderInCategory="1" />
+    <item
+        android:id="@+id/action_discard_text"
+        android:title="@string/text_editor_discard"
+        android:icon="@drawable/ic_close"
+        android:visible="false"
+        app:showAsAction="always"
+        android:orderInCategory="1" />
 
 </menu>

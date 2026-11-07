@@ -34,8 +34,12 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.widget.RelativeLayout
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
+import androidx.core.widget.doAfterTextChanged
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
@@ -74,6 +78,18 @@ class PreviewTextFragment : FileFragment() {
     private val fileOperationsViewModel by viewModel<FileOperationsViewModel>()
 
     private lateinit var binding: PreviewTextFragmentBinding
+
+    // Text as loaded from the local file (null until loaded), and edit-mode state
+    private var loadedText: String? = null
+    private var isEditing = false
+    private var isDirty = false
+    private var hiddenPreviewViews: List<View> = emptyList()
+
+    private val unsavedChangesBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            showDiscardChangesDialog { stopEditing() ; finish() }
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -125,6 +141,24 @@ class PreviewTextFragment : FileFragment() {
 
         }
 
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, unsavedChangesBackCallback)
+        binding.textEditor.doAfterTextChanged {
+            if (isEditing && !isDirty) {
+                isDirty = true
+                unsavedChangesBackCallback.isEnabled = true
+            }
+        }
+        collectLatestLifecycleFlow(previewTextViewModel.saveResult) { success ->
+            if (success) {
+                stopEditing()
+                Snackbar.make(requireView(), R.string.text_editor_saved, Snackbar.LENGTH_LONG).show()
+                loadAndShowTextPreview()
+            } else {
+                binding.textEditor.isEnabled = true
+                Snackbar.make(requireView(), R.string.text_editor_save_failed, Snackbar.LENGTH_LONG).show()
+            }
+        }
+
         loadAndShowTextPreview()
     }
 
@@ -137,6 +171,22 @@ class PreviewTextFragment : FileFragment() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean =
         when (item.itemId) {
+            R.id.action_edit_text -> {
+                startEditing()
+                true
+            }
+
+            R.id.action_save_text -> {
+                binding.textEditor.isEnabled = false
+                previewTextViewModel.saveEditedText(file, binding.textEditor.text.toString())
+                true
+            }
+
+            R.id.action_discard_text -> {
+                if (isDirty) showDiscardChangesDialog { stopEditing() } else stopEditing()
+                true
+            }
+
             R.id.action_share_file -> {
                 mContainerActivity.fileOperationsHelper.showShareFile(file)
                 true
@@ -213,6 +263,8 @@ class PreviewTextFragment : FileFragment() {
     }
 
     override fun onFileContentChanged() {
+        // Do not replace what the user is typing; the preview is refreshed when leaving edit mode
+        if (isEditing) return
         loadAndShowTextPreview()
     }
 
@@ -233,6 +285,7 @@ class PreviewTextFragment : FileFragment() {
             collectLatestLifecycleFlow(previewTextViewModel.menuOptions) { menuOptions ->
                 val hasWritePermission = safeFile.hasWritePermission
                 menu.filterMenuOptions(menuOptions, hasWritePermission)
+                applyEditMenuState(menu)
             }
         }
 
@@ -241,7 +294,65 @@ class PreviewTextFragment : FileFragment() {
             isEnabled = false
         }
 
+        applyEditMenuState(menu)
         setRolesAccessibilityToMenuItems(menu)
+    }
+
+    /** Shows Edit when the file can be edited; in edit mode shows only Save and Discard. */
+    private fun applyEditMenuState(menu: Menu) {
+        val canEdit = !isEditing && loadedText != null && canBeEdited(file)
+        menu.findItem(R.id.action_edit_text)?.apply { isVisible = canEdit; isEnabled = canEdit }
+        menu.findItem(R.id.action_save_text)?.apply { isVisible = isEditing; isEnabled = isEditing }
+        menu.findItem(R.id.action_discard_text)?.apply { isVisible = isEditing; isEnabled = isEditing }
+        if (isEditing) {
+            for (i in 0 until menu.size()) {
+                val item = menu.getItem(i)
+                if (item.itemId != R.id.action_save_text && item.itemId != R.id.action_discard_text) {
+                    item.isVisible = false
+                    item.isEnabled = false
+                }
+            }
+        }
+    }
+
+    private fun startEditing() {
+        val text = loadedText ?: return
+        isEditing = true
+        isDirty = false
+        hiddenPreviewViews = listOf(binding.textLayout.root, binding.tabLayout, binding.viewPager)
+            .filter { it.parent != null && it.visibility == View.VISIBLE }
+        hiddenPreviewViews.forEach { it.visibility = View.GONE }
+        binding.textEditor.apply {
+            setText(text)
+            isEnabled = true
+            visibility = View.VISIBLE
+            setSelection(text.length)
+            requestFocus()
+        }
+        (requireContext().getSystemService(InputMethodManager::class.java))
+            ?.showSoftInput(binding.textEditor, InputMethodManager.SHOW_IMPLICIT)
+        requireActivity().invalidateOptionsMenu()
+    }
+
+    private fun stopEditing() {
+        isEditing = false
+        isDirty = false
+        unsavedChangesBackCallback.isEnabled = false
+        (requireContext().getSystemService(InputMethodManager::class.java))
+            ?.hideSoftInputFromWindow(binding.textEditor.windowToken, 0)
+        binding.textEditor.visibility = View.GONE
+        hiddenPreviewViews.forEach { it.visibility = View.VISIBLE }
+        hiddenPreviewViews = emptyList()
+        requireActivity().invalidateOptionsMenu()
+    }
+
+    private fun showDiscardChangesDialog(onDiscard: () -> Unit) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.text_editor_unsaved_title)
+            .setMessage(R.string.text_editor_unsaved_message)
+            .setPositiveButton(R.string.text_editor_discard) { _, _ -> onDiscard() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun setRolesAccessibilityToMenuItems(menu: Menu) {
@@ -335,6 +446,8 @@ class PreviewTextFragment : FileFragment() {
 
         override fun onPostExecute(result: StringWriter) {
             val text = String(result.buffer)
+            loadedText = text
+            activity?.invalidateOptionsMenu()
             showPreviewText(text, mimeType, rootView, textViewReference, textLayout, tabLayout, viewPager)
 
             try {
@@ -425,6 +538,13 @@ class PreviewTextFragment : FileFragment() {
                 arguments = args
             }
         }
+
+        private const val MAX_EDITABLE_SIZE_BYTES = 1_000_000L
+
+        fun canBeEdited(file: OCFile?): Boolean =
+            file != null && file.hasWritePermission && file.isAvailableLocally &&
+                    file.storagePath != null && file.length <= MAX_EDITABLE_SIZE_BYTES &&
+                    (file.mimeType == "text/plain" || file.mimeType == "text/markdown")
 
         fun canBePreviewed(file: OCFile?): Boolean {
             val unsupportedTypes = listOf(

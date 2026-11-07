@@ -47,4 +47,18 @@
         android:layout_below="@id/tab_layout"
         android:visibility="gone" />
 
+    <EditText
+        android:id="@+id/text_editor"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentTop="true"
+        android:background="?android:attr/colorBackground"
+        android:gravity="top|start"
+        android:importantForAutofill="no"
+        android:inputType="textMultiLine|textNoSuggestions"
+        android:padding="@dimen/standard_margin"
+        android:scrollbars="vertical"
+        android:typeface="monospace"
+        android:visibility="gone" />
+
 </RelativeLayout>
